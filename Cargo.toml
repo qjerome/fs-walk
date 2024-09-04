@@ -1,0 +1,13 @@
+[package]
+name = "fs-walk"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70.0"
+authors = ["Quentin JEROME <qjerome@rawsec.lu>"]
+description = "File-system walking crate"
+keywords = ["file-system", "walking", "recursive", "find"]
+license = "GPL-3.0"
+documentation = "https://docs.rs/fs-walk"
+repository = "https://github.com/qjerome/fs-walk"
+
+[dependencies]
