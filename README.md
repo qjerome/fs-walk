@@ -7,9 +7,9 @@
 file-system recursively using `std` Rust APIs.
 
 This crate currently supports:
-    - depth configuration
-    - results chunking to feed any batch processing routine
-    - result selection (only files, only dirs, by extension)
+ - depth configuration
+ - results chunking to feed any batch processing routine
+ - result selection (only files, only dirs, by extension)
 
 # Example
 
