@@ -1,3 +1,4 @@
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/qjerome/fs-walk/rust.yml?style=for-the-badge)](https://github.com/qjerome/fs-walk/actions/workflows/rust.yml)
 [![Crates.io Version](https://img.shields.io/crates/v/fs-walk?style=for-the-badge)](https://crates.io/crates/fs-walk)
 [![docs.rs](https://img.shields.io/docsrs/fs-walk?style=for-the-badge&logo=docs.rs&color=blue)](https://docs.rs/fs-walk)
 
