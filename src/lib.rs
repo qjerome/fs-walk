@@ -330,15 +330,11 @@ impl Iterator for Walker {
             }
             match item {
                 Ok(p) => {
-                    if !self.options.dirs_only && !self.options.files_only {
+                    if p.is_dir() && (!self.options.files_only || self.options.dirs_only) {
                         return Some(Ok(p));
                     }
 
-                    if self.options.dirs_only && p.is_dir() {
-                        return Some(Ok(p));
-                    }
-
-                    if self.options.files_only && p.is_file() {
+                    if p.is_file() && (!self.options.dirs_only || self.options.files_only) {
                         if self.options.extensions.is_empty() {
                             return Some(Ok(p));
                         } else if let Some(ext) = p.extension() {
@@ -378,7 +374,7 @@ mod tests {
     fn test_walker_on_file() {
         // walking on a file doesn't return any error instead
         // it returns only the file
-        let w = Walker::from_path("./src/lib.rs");
+        let w = WalkOptions::new().walk("./src/lib.rs");
         let v = w.flatten().collect::<Vec<PathBuf>>();
 
         assert_eq!(v.len(), 1)
