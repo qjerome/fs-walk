@@ -23,7 +23,7 @@
 //! ```
 
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     fs, io,
     path::{Path, PathBuf},
 };
@@ -46,6 +46,7 @@ use std::{
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct WalkOptions {
+    sort: bool,
     dirs_only: bool,
     files_only: bool,
     max_depth: Option<u64>,
@@ -171,6 +172,13 @@ impl WalkOptions {
         self
     }
 
+    /// Sorts entries at every directory listing
+    #[inline(always)]
+    pub fn sort(mut self, value: bool) -> Self {
+        self.sort = value;
+        self
+    }
+
     /// Turns [self] into a [Walker]
     #[inline(always)]
     pub fn walk<P: AsRef<Path>>(self, p: P) -> Walker {
@@ -201,7 +209,7 @@ pub struct Walker {
     init: bool,
     root: PathBuf,
     options: WalkOptions,
-    queue: Vec<(u64, Result<PathBuf, io::Error>)>,
+    queue: VecDeque<(u64, Result<PathBuf, io::Error>)>,
     marked: HashSet<PathBuf>,
 }
 
@@ -281,13 +289,27 @@ impl Walker {
         }
 
         if p.as_ref().is_file() {
-            self.queue.push((depth, Ok(p.as_ref().to_path_buf())));
+            self.queue.push_back((depth, Ok(p.as_ref().to_path_buf())));
         } else if p.as_ref().is_dir() {
             match fs::read_dir(p.as_ref()) {
-                Ok(rd) => self
-                    .queue
-                    .extend(rd.map(|r| (depth, r.map(|de| de.path())))),
-                Err(e) => self.queue.push((depth, Err(e))),
+                Ok(rd) => {
+                    let mut tmp: Vec<(u64, Result<PathBuf, io::Error>)> =
+                        rd.map(|r| (depth, r.map(|de| de.path()))).collect();
+
+                    if self.options.sort {
+                        tmp.sort_by(|(_, res1), (_, res2)| {
+                            match (res1, res2) {
+                                (Ok(path1), Ok(path2)) => path1.cmp(path2), // Compare paths if both are Ok
+                                (Err(_), Ok(_)) => std::cmp::Ordering::Greater, // Err comes after Ok
+                                (Ok(_), Err(_)) => std::cmp::Ordering::Less, // Ok comes before Err
+                                (Err(e1), Err(e2)) => e1.to_string().cmp(&e2.to_string()), // Compare errors by message
+                            }
+                        });
+                    }
+
+                    self.queue.extend(tmp)
+                }
+                Err(e) => self.queue.push_back((depth, Err(e))),
             }
         }
 
@@ -305,7 +327,7 @@ impl Walker {
             return None;
         }
 
-        let (depth, item) = self.queue.pop()?;
+        let (depth, item) = self.queue.pop_front()?;
         if let Ok(p) = item.as_ref() {
             if p.is_dir()
                 && (self.options.max_depth.is_some_and(|md| md > depth)
