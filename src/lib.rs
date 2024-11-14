@@ -470,4 +470,18 @@ mod tests {
         // we verify that at depth 0 we have less items than at depth 1
         assert!(d1 > d0);
     }
+
+    #[test]
+    fn test_sort() {
+        let w = WalkOptions::new().max_depth(0).sort(true).walk("./");
+        let ns = WalkOptions::new().max_depth(0).sort(false).walk("./");
+
+        let sorted = w.flatten().collect::<Vec<PathBuf>>();
+        let mut unsorted = ns.flatten().collect::<Vec<PathBuf>>();
+
+        assert!(sorted.len() > 1);
+        assert_ne!(sorted, unsorted);
+        unsorted.sort();
+        assert_eq!(sorted, unsorted);
+    }
 }
