@@ -51,6 +51,7 @@ pub struct WalkOptions {
     files_only: bool,
     max_depth: Option<u64>,
     extensions: HashSet<String>,
+    ends_with: Vec<String>,
 }
 
 impl WalkOptions {
@@ -169,6 +170,41 @@ impl WalkOptions {
     #[inline(always)]
     pub fn extension<S: AsRef<str>>(mut self, ext: S) -> Self {
         self.extensions.insert(ext.as_ref().to_string());
+        self
+    }
+
+    /// Configure walker to return files ending with pattern `pat`
+    /// For any file, if [Path::to_string_lossy] **ends with** pattern
+    /// `pat` it is going to be returned.
+    ///
+    /// This method can be used to match path with double extensions (i.e. `.txt.gz`)
+    /// without having to do manual pattern matching on walker's output.
+    ///
+    /// See [str::ends_with] for more detail about matching
+    ///
+    /// # Example
+    /// ```
+    /// use fs_walk;
+    /// use std::path::PathBuf;
+    /// use std::ffi::OsStr;
+    ///
+    /// let o = fs_walk::WalkOptions::new()
+    ///     .files()
+    ///     .extension("o")
+    ///     // we can put . here not in extension
+    ///     // can be used to match path with double extensions
+    ///     .ends_with(".rs");
+    ///
+    /// let paths: Vec<PathBuf> = o.walk("./").flatten().collect();
+    ///
+    /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("o"))));
+    /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("rs"))));
+    /// assert!(!paths.iter().any(|p| p.extension() == Some(OsStr::new("toml"))));
+    /// assert!(!paths.iter().any(|p| p.extension() == Some(OsStr::new("lock"))));
+    /// ```
+    #[inline(always)]
+    pub fn ends_with<S: AsRef<str>>(mut self, pat: S) -> Self {
+        self.ends_with.push(pat.as_ref().to_string());
         self
     }
 
@@ -357,14 +393,24 @@ impl Iterator for Walker {
                     }
 
                     if p.is_file() && (!self.options.dirs_only || self.options.files_only) {
-                        if self.options.extensions.is_empty() {
+                        if self.options.extensions.is_empty() && self.options.ends_with.is_empty() {
                             return Some(Ok(p));
-                        } else if let Some(ext) = p.extension() {
+                        }
+
+                        // we check for extension
+                        if let Some(ext) = p.extension() {
                             if self
                                 .options
                                 .extensions
                                 .contains(&ext.to_string_lossy().to_string())
                             {
+                                return Some(Ok(p));
+                            }
+                        }
+
+                        // we check for paths ending with pattern
+                        for trail in self.options.ends_with.iter() {
+                            if p.to_string_lossy().ends_with(trail) {
                                 return Some(Ok(p));
                             }
                         }
@@ -415,6 +461,19 @@ mod tests {
     #[test]
     fn test_files_by_extension() {
         let o = WalkOptions::new().files().extension("o");
+        let w = o.walk("./");
+
+        let mut c = 0;
+        for p in w.flatten() {
+            assert_eq!(p.extension(), Some(OsStr::new("o")));
+            c += 1;
+        }
+        assert!(c > 0);
+    }
+
+    #[test]
+    fn test_files_ends_with() {
+        let o = WalkOptions::new().files().ends_with(".o");
         let w = o.walk("./");
 
         let mut c = 0;
