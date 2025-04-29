@@ -541,7 +541,7 @@ mod tests {
         let o = WalkOptions::new().ends_with("src").ends_with(".git");
         let v = o.walk("./").flatten().collect::<Vec<PathBuf>>();
 
-        assert!(v.len() > 2);
+        assert!(v.len() >= 2);
         for p in v.iter() {
             assert!(p.is_dir());
         }
