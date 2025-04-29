@@ -52,6 +52,7 @@ pub struct WalkOptions {
     max_depth: Option<u64>,
     extensions: HashSet<String>,
     ends_with: Vec<String>,
+    names: HashSet<String>,
 }
 
 impl WalkOptions {
@@ -205,6 +206,29 @@ impl WalkOptions {
     #[inline(always)]
     pub fn ends_with<S: AsRef<str>>(mut self, pat: S) -> Self {
         self.ends_with.push(pat.as_ref().to_string());
+        self
+    }
+
+    /// Configure walker to return only paths with [Path::file_name] matching `name`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fs_walk;
+    /// use std::path::PathBuf;
+    /// use std::ffi::OsStr;
+    ///
+    /// let o = fs_walk::WalkOptions::new()
+    ///     .name("lib.rs");
+    ///
+    /// let paths: Vec<PathBuf> = o.walk("./").flatten().collect();
+    ///
+    /// assert!(paths.iter().all(|p| p.file_name() == Some(OsStr::new("lib.rs"))));
+    /// assert!(paths.iter().all(|p| p.is_file()));
+    /// ```
+    #[inline(always)]
+    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
+        self.names.insert(name.as_ref().to_string());
         self
     }
 
@@ -389,23 +413,51 @@ impl Iterator for Walker {
             match item {
                 Ok(p) => {
                     if p.is_dir() && (!self.options.files_only || self.options.dirs_only) {
-                        return Some(Ok(p));
+                        if self.options.ends_with.is_empty() && self.options.names.is_empty() {
+                            return Some(Ok(p));
+                        }
+
+                        // test filename
+                        if p.file_name()
+                            .and_then(|file_name| file_name.to_str())
+                            .map(|file_name| self.options.names.contains(file_name))
+                            .unwrap_or_default()
+                        {
+                            return Some(Ok(p));
+                        }
+
+                        // we check for paths ending with pattern
+                        for trail in self.options.ends_with.iter() {
+                            if p.to_string_lossy().ends_with(trail) {
+                                return Some(Ok(p));
+                            }
+                        }
                     }
 
                     if p.is_file() && (!self.options.dirs_only || self.options.files_only) {
-                        if self.options.extensions.is_empty() && self.options.ends_with.is_empty() {
+                        if self.options.extensions.is_empty()
+                            && self.options.ends_with.is_empty()
+                            && self.options.names.is_empty()
+                        {
+                            return Some(Ok(p));
+                        }
+
+                        // test filename
+                        if p.file_name()
+                            .and_then(|file_name| file_name.to_str())
+                            .map(|file_name| self.options.names.contains(file_name))
+                            .unwrap_or_default()
+                        {
                             return Some(Ok(p));
                         }
 
                         // we check for extension
-                        if let Some(ext) = p.extension() {
-                            if self
-                                .options
-                                .extensions
-                                .contains(&ext.to_string_lossy().to_string())
-                            {
-                                return Some(Ok(p));
-                            }
+                        if p.extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| self.options.extensions.contains(ext))
+                            .unwrap_or_default()
+                        {
+                            return Some(Ok(p));
                         }
 
                         // we check for paths ending with pattern
@@ -473,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_files_ends_with() {
-        let o = WalkOptions::new().files().ends_with(".o");
+        let o = WalkOptions::new().ends_with(".o");
         let w = o.walk("./");
 
         let mut c = 0;
@@ -482,6 +534,17 @@ mod tests {
             c += 1;
         }
         assert!(c > 0);
+    }
+
+    #[test]
+    fn test_dirs_ends_with() {
+        let o = WalkOptions::new().ends_with("src").ends_with(".git");
+        let v = o.walk("./").flatten().collect::<Vec<PathBuf>>();
+
+        assert!(v.len() > 2);
+        for p in v.iter() {
+            assert!(p.is_dir());
+        }
     }
 
     #[test]
@@ -542,5 +605,21 @@ mod tests {
         assert_ne!(sorted, unsorted);
         unsorted.sort();
         assert_eq!(sorted, unsorted);
+    }
+
+    #[test]
+    fn test_name() {
+        let w = WalkOptions::new().name("lib.rs").name("src").walk("./");
+
+        let v = w.flatten().collect::<Vec<PathBuf>>();
+        assert!(v.len() > 1);
+        for p in v.iter() {
+            if p.file_name().unwrap() == "lib.rs" {
+                assert!(p.is_file())
+            }
+            if p.file_name().unwrap() == "src" {
+                assert!(p.is_dir())
+            }
+        }
     }
 }
