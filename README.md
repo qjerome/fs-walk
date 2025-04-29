@@ -11,6 +11,10 @@ This crate currently supports:
  - depth configuration
  - results chunking to feed any batch processing routine
  - result selection (only files, only dirs, by extension)
+ - regex matching
+
+# Features
+ - `regex`: enable regex matching
 
 # Example
 
