@@ -1,5 +1,4 @@
 #![deny(unused_imports)]
-
 //! `fs_walk` is a crate providing functionalities to walk a
 //! file-system recursively using `std` Rust APIs.
 //!
@@ -7,6 +6,10 @@
 //!  - depth configuration
 //!  - results chunking to feed any batch processing routine
 //!  - result selection (only files, only dirs, by extension)
+//!  - regex matching
+//!
+//! # Features
+//!  - `regex`: enable regex matching
 //!
 //! # Example
 //!
@@ -27,6 +30,9 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
+
+#[cfg(feature = "regex")]
+use regex::Regex;
 
 /// Structure encoding the desired walking
 /// options
@@ -53,6 +59,8 @@ pub struct WalkOptions {
     extensions: HashSet<String>,
     ends_with: Vec<String>,
     names: HashSet<String>,
+    #[cfg(feature = "regex")]
+    regex: Vec<Regex>,
 }
 
 impl WalkOptions {
@@ -230,6 +238,86 @@ impl WalkOptions {
     pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.names.insert(name.as_ref().to_string());
         self
+    }
+
+    /// Configure walker to return only paths with [Path::file_name] matching `regex`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fs_walk;
+    /// use std::path::PathBuf;
+    /// use std::ffi::OsStr;
+    ///
+    /// let w = fs_walk::WalkOptions::new().name_regex(r#"^(.*\.rs|src|target)$"#).unwrap();
+    /// assert!(w.clone().dirs().walk("./").count() > 0);
+    /// assert!(w.files().walk("./").count() > 0);
+    /// ```
+    #[inline(always)]
+    #[cfg(feature = "regex")]
+    pub fn name_regex<S: AsRef<str>>(mut self, regex: S) -> Result<Self, regex::Error> {
+        self.regex.push(Regex::new(regex.as_ref())?);
+        Ok(self)
+    }
+
+    #[inline(always)]
+    fn regex_is_empty(&self) -> bool {
+        #[cfg(feature = "regex")]
+        return self.regex.is_empty();
+        #[cfg(not(feature = "regex"))]
+        true
+    }
+
+    #[inline(always)]
+    fn path_match<P: AsRef<Path>>(&self, p: P) -> bool {
+        let p = p.as_ref();
+
+        if self.extensions.is_empty()
+            && self.ends_with.is_empty()
+            && self.names.is_empty()
+            && self.regex_is_empty()
+        {
+            return true;
+        }
+
+        // test filename
+        if !self.names.is_empty()
+            && p.file_name()
+                .and_then(|file_name| file_name.to_str())
+                .map(|file_name| self.names.contains(file_name))
+                .unwrap_or_default()
+        {
+            return true;
+        }
+
+        // we check for extension
+        if !self.extensions.is_empty()
+            && p.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| self.extensions.contains(ext))
+                .unwrap_or_default()
+        {
+            return true;
+        }
+
+        // we check for paths ending with pattern
+        for trail in self.ends_with.iter() {
+            if p.to_string_lossy().ends_with(trail) {
+                return true;
+            }
+        }
+
+        // we check regex
+        #[cfg(feature = "regex")]
+        if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
+            for re in self.regex.iter() {
+                if re.is_match(file_name) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Sorts entries at every directory listing
@@ -412,60 +500,18 @@ impl Iterator for Walker {
             }
             match item {
                 Ok(p) => {
-                    if p.is_dir() && (!self.options.files_only || self.options.dirs_only) {
-                        if self.options.ends_with.is_empty() && self.options.names.is_empty() {
-                            return Some(Ok(p));
-                        }
-
-                        // test filename
-                        if p.file_name()
-                            .and_then(|file_name| file_name.to_str())
-                            .map(|file_name| self.options.names.contains(file_name))
-                            .unwrap_or_default()
-                        {
-                            return Some(Ok(p));
-                        }
-
-                        // we check for paths ending with pattern
-                        for trail in self.options.ends_with.iter() {
-                            if p.to_string_lossy().ends_with(trail) {
-                                return Some(Ok(p));
-                            }
-                        }
+                    if p.is_dir()
+                        && (!self.options.files_only || self.options.dirs_only)
+                        && self.options.path_match(&p)
+                    {
+                        return Some(Ok(p));
                     }
 
-                    if p.is_file() && (!self.options.dirs_only || self.options.files_only) {
-                        if self.options.extensions.is_empty()
-                            && self.options.ends_with.is_empty()
-                            && self.options.names.is_empty()
-                        {
-                            return Some(Ok(p));
-                        }
-
-                        // test filename
-                        if p.file_name()
-                            .and_then(|file_name| file_name.to_str())
-                            .map(|file_name| self.options.names.contains(file_name))
-                            .unwrap_or_default()
-                        {
-                            return Some(Ok(p));
-                        }
-
-                        // we check for extension
-                        if p.extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| self.options.extensions.contains(ext))
-                            .unwrap_or_default()
-                        {
-                            return Some(Ok(p));
-                        }
-
-                        // we check for paths ending with pattern
-                        for trail in self.options.ends_with.iter() {
-                            if p.to_string_lossy().ends_with(trail) {
-                                return Some(Ok(p));
-                            }
-                        }
+                    if p.is_file()
+                        && (!self.options.dirs_only || self.options.files_only)
+                        && self.options.path_match(&p)
+                    {
+                        return Some(Ok(p));
                     }
                 }
                 Err(e) => return Some(Err(e)),
@@ -621,5 +667,18 @@ mod tests {
                 assert!(p.is_dir())
             }
         }
+    }
+
+    #[test]
+    #[cfg(feature = "regex")]
+    fn test_name_regex() {
+        let w = WalkOptions::new()
+            .name_regex(r#"^(.*\.rs|src|target)$"#)
+            .unwrap()
+            .name_regex(r#".*\.md"#)
+            .unwrap();
+
+        assert!(w.clone().dirs().walk("./").count() > 0);
+        assert!(w.clone().files().walk("./").count() > 0);
     }
 }
