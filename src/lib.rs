@@ -261,13 +261,21 @@ impl WalkOptions {
     }
 
     #[inline(always)]
+    fn regex_is_empty(&self) -> bool {
+        #[cfg(feature = "regex")]
+        return self.regex.is_empty();
+        #[cfg(not(feature = "regex"))]
+        true
+    }
+
+    #[inline(always)]
     fn path_match<P: AsRef<Path>>(&self, p: P) -> bool {
         let p = p.as_ref();
 
         if self.extensions.is_empty()
             && self.ends_with.is_empty()
             && self.names.is_empty()
-            && self.regex.is_empty()
+            && self.regex_is_empty()
         {
             return true;
         }
@@ -300,6 +308,7 @@ impl WalkOptions {
         }
 
         // we check regex
+        #[cfg(feature = "regex")]
         if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
             for re in self.regex.iter() {
                 if re.is_match(file_name) {
@@ -661,6 +670,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "regex")]
     fn test_name_regex() {
         let w = WalkOptions::new()
             .name_regex(r#"^(.*\.rs|src|target)$"#)
