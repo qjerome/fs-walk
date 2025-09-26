@@ -353,13 +353,76 @@ impl Iterator for Chunks {
     }
 }
 
+#[derive(Debug)]
+struct PathIterator {
+    depth: u64,
+    path: Option<PathBuf>,
+    items: VecDeque<Result<PathBuf, io::Error>>,
+    init: bool,
+    sort: bool,
+}
+
+impl PathIterator {
+    fn new<P: AsRef<Path>>(depth: u64, path: P, sort: bool) -> Self {
+        Self {
+            depth,
+            path: Some(path.as_ref().to_path_buf()),
+            items: VecDeque::new(),
+            init: false,
+            sort,
+        }
+    }
+}
+
+impl Iterator for PathIterator {
+    type Item = Result<PathBuf, io::Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.init {
+            self.init = true;
+            // guarantee to exist at init
+            let path = self.path.as_ref().unwrap();
+
+            if path.is_file() {
+                match self.path.take() {
+                    Some(p) => return Some(Ok(p)),
+                    None => return None,
+                }
+            } else {
+                match fs::read_dir(path) {
+                    Ok(rd) => {
+                        let mut tmp: Vec<Result<PathBuf, io::Error>> =
+                            rd.map(|r| r.map(|de| de.path())).collect();
+
+                        if self.sort {
+                            tmp.sort_by(|res1, res2| {
+                                match (res1, res2) {
+                                    (Ok(path1), Ok(path2)) => path1.cmp(path2), // Compare paths if both are Ok
+                                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater, // Err comes after Ok
+                                    (Ok(_), Err(_)) => std::cmp::Ordering::Less, // Ok comes before Err
+                                    (Err(e1), Err(e2)) => e1.to_string().cmp(&e2.to_string()), // Compare errors by message
+                                }
+                            });
+                        }
+
+                        self.items.extend(tmp);
+                    }
+                    Err(e) => self.items.push_back(Err(e)),
+                };
+            }
+        }
+
+        self.items.pop_front()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Walker {
     init: bool,
     root: PathBuf,
     options: WalkOptions,
-    queue: VecDeque<(u64, Result<PathBuf, io::Error>)>,
-    marked: HashSet<PathBuf>,
+    queue: VecDeque<PathIterator>,
+    current: Option<PathIterator>,
+    marked: HashSet<[u8; 32]>,
 }
 
 impl Walker {
@@ -395,8 +458,8 @@ impl Walker {
     /// ```
     /// use fs_walk::{Walker, WalkOptions};
     ///
-    /// let o = WalkOptions::new()
-    ///     .files();
+    /// let mut o = WalkOptions::new();
+    /// o.files();
     ///
     /// assert!(Walker::from_path("./").with_options(o.clone()).flatten().any(|p| p.is_file()));
     /// assert!(!Walker::from_path("./").with_options(o).flatten().any(|p| p.is_dir()));
@@ -433,36 +496,16 @@ impl Walker {
 
     #[inline(always)]
     fn queue<P: AsRef<Path>>(&mut self, p: P, depth: u64) {
-        if self.marked.contains(p.as_ref()) {
-            return;
-        }
+        if let Ok(can) = p.as_ref().canonicalize() {
+            let h = blake3::hash(can.as_os_str().as_bytes());
 
-        if p.as_ref().is_file() {
-            self.queue.push_back((depth, Ok(p.as_ref().to_path_buf())));
-        } else if p.as_ref().is_dir() {
-            match fs::read_dir(p.as_ref()) {
-                Ok(rd) => {
-                    let mut tmp: Vec<(u64, Result<PathBuf, io::Error>)> =
-                        rd.map(|r| (depth, r.map(|de| de.path()))).collect();
+            if !self.marked.contains(h.as_bytes()) {
+                self.queue
+                    .push_front(PathIterator::new(depth, p, self.options.sort));
 
-                    if self.options.sort {
-                        tmp.sort_by(|(_, res1), (_, res2)| {
-                            match (res1, res2) {
-                                (Ok(path1), Ok(path2)) => path1.cmp(path2), // Compare paths if both are Ok
-                                (Err(_), Ok(_)) => std::cmp::Ordering::Greater, // Err comes after Ok
-                                (Ok(_), Err(_)) => std::cmp::Ordering::Less, // Ok comes before Err
-                                (Err(e1), Err(e2)) => e1.to_string().cmp(&e2.to_string()), // Compare errors by message
-                            }
-                        });
-                    }
-
-                    self.queue.extend(tmp)
-                }
-                Err(e) => self.queue.push_back((depth, Err(e))),
+                self.marked.insert(h.into());
             }
         }
-
-        self.marked.insert(p.as_ref().to_path_buf());
     }
 
     #[inline(always)]
@@ -472,21 +515,58 @@ impl Walker {
             self.init = true;
         }
 
-        if self.queue.is_empty() {
-            return None;
-        }
+        if let Some(pi) = self.current.as_mut() {
+            if let Some(ni) = pi.next() {
+                match ni {
+                    Ok(p) => {
+                        if p.is_file() {
+                            Some(Ok(p))
+                        } else {
+                            let next_depth = pi.depth + 1;
+                            if let Some(max_depth) = self.options.max_depth {
+                                if next_depth > max_depth {
+                                    return Some(Ok(p));
+                                }
+                            }
 
-        let (depth, item) = self.queue.pop_front()?;
-        if let Ok(p) = item.as_ref() {
-            if p.is_dir()
-                && (self.options.max_depth.is_some_and(|md| md > depth)
-                    || self.options.max_depth.is_none())
-            {
-                self.queue(p, depth + 1);
+                            // we use canonical path for marking directories
+                            if let Ok(can) = p.canonicalize() {
+                                let mut must_walk = false;
+
+                                if p.is_symlink() && self.options.follow_symlink {
+                                    let h = blake3::hash(can.as_os_str().as_bytes());
+
+                                    if !self.marked.contains(h.as_bytes()) {
+                                        must_walk |= true;
+                                        self.marked.insert(h.into());
+                                    }
+                                }
+
+                                if must_walk || !p.is_symlink() {
+                                    self.queue.push_back(PathIterator::new(
+                                        pi.depth + 1,
+                                        &can,
+                                        self.options.sort,
+                                    ));
+                                }
+                            }
+
+                            Some(Ok(p))
+                        }
+                    }
+                    Err(e) => Some(Err(e)),
+                }
+            } else {
+                self.current = self.queue.pop_front();
+                self._next()
             }
+        } else {
+            if self.queue.is_empty() {
+                return None;
+            }
+            self.current = self.queue.pop_front();
+            self._next()
         }
-
-        Some(item)
     }
 }
 
