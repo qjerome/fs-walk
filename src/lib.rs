@@ -16,13 +16,14 @@
 //! ```
 //! use fs_walk;
 //!
-//! let o = fs_walk::WalkOptions::new()
+//! let w = fs_walk::WalkOptions::new()
 //!     // we want to walk only files
 //!     .files()
 //!     // we want files with .o extension
-//!     .extension("o");
+//!     .extension("o")
+//!     .walk("./");
 //!
-//! assert!(o.walk("./").count() > 0);
+//! assert!(w.count() > 0);
 //! ```
 
 use std::{
@@ -42,19 +43,21 @@ use regex::Regex;
 /// ```
 /// use fs_walk;
 ///
-/// let o = fs_walk::WalkOptions::new()
+/// let w = fs_walk::WalkOptions::new()
 ///     // we want to walk only files
 ///     .files()
 ///     // we want files with .o extension
-///     .extension("o");
+///     .extension("o")
+///     .walk("./");
 ///
-/// assert!(o.walk("./").count() > 0);
+/// assert!(w.count() > 0);
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct WalkOptions {
     sort: bool,
     dirs_only: bool,
     files_only: bool,
+    follow_symlink: bool,
     max_depth: Option<u64>,
     extensions: HashSet<String>,
     ends_with: Vec<String>,
@@ -91,17 +94,14 @@ impl WalkOptions {
     /// # Example
     ///
     /// ```
-    /// use fs_walk;
+    /// use fs_walk::WalkOptions;
     ///
-    /// let o = fs_walk::WalkOptions::new()
-    ///     .dirs();
-    ///
-    /// for p in o.walk("./").flatten() {
+    /// for p in WalkOptions::new().dirs().walk("./").flatten() {
     ///     assert!(p.is_dir());
     /// }
     /// ```
     #[inline(always)]
-    pub fn dirs(mut self) -> Self {
+    pub fn dirs(&mut self) -> &mut Self {
         self.dirs_only = true;
         self
     }
@@ -112,17 +112,14 @@ impl WalkOptions {
     /// # Example
     ///
     /// ```
-    /// use fs_walk;
+    /// use fs_walk::WalkOptions;
     ///
-    /// let o = fs_walk::WalkOptions::new()
-    ///     .files();
-    ///
-    /// for p in o.walk("./").flatten() {
+    /// for p in WalkOptions::new().files().walk("./").flatten() {
     ///     assert!(p.is_file());
     /// }
     /// ```
     #[inline(always)]
-    pub fn files(mut self) -> Self {
+    pub fn files(&mut self) -> &mut Self {
         self.files_only = true;
         self
     }
@@ -134,19 +131,16 @@ impl WalkOptions {
     /// # Example
     ///
     /// ```
-    /// use fs_walk;
+    /// use fs_walk::WalkOptions;
     /// use std::path::Path;
     ///
-    /// let o = fs_walk::WalkOptions::new()
-    ///     .max_depth(0);
-    ///
-    /// for p in o.walk("./").flatten() {
+    /// for p in WalkOptions::new().max_depth(0).walk("./").flatten() {
     ///     assert_eq!(p.parent(), Some(Path::new(".")));
     /// }
     ///
     /// ```
     #[inline(always)]
-    pub fn max_depth(mut self, depth: u64) -> Self {
+    pub fn max_depth(&mut self, depth: u64) -> &mut Self {
         self.max_depth = Some(depth);
         self
     }
@@ -164,12 +158,13 @@ impl WalkOptions {
     /// use std::path::PathBuf;
     /// use std::ffi::OsStr;
     ///
-    /// let o = fs_walk::WalkOptions::new()
+    /// let wk = fs_walk::WalkOptions::new()
     ///     .files()
     ///     .extension("o")
-    ///     .extension("rs");
+    ///     .extension("rs")
+    ///     .walk("./");
     ///
-    /// let paths: Vec<PathBuf> = o.walk("./").flatten().collect();
+    /// let paths: Vec<PathBuf> = wk.flatten().collect();
     ///
     /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("o"))));
     /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("rs"))));
@@ -177,7 +172,7 @@ impl WalkOptions {
     /// assert!(!paths.iter().any(|p| p.extension() == Some(OsStr::new("lock"))));
     /// ```
     #[inline(always)]
-    pub fn extension<S: AsRef<str>>(mut self, ext: S) -> Self {
+    pub fn extension<S: AsRef<str>>(&mut self, ext: S) -> &mut Self {
         self.extensions.insert(ext.as_ref().to_string());
         self
     }
@@ -197,14 +192,15 @@ impl WalkOptions {
     /// use std::path::PathBuf;
     /// use std::ffi::OsStr;
     ///
-    /// let o = fs_walk::WalkOptions::new()
+    /// let wk = fs_walk::WalkOptions::new()
     ///     .files()
     ///     .extension("o")
     ///     // we can put . here not in extension
     ///     // can be used to match path with double extensions
-    ///     .ends_with(".rs");
+    ///     .ends_with(".rs")
+    ///     .walk("./");
     ///
-    /// let paths: Vec<PathBuf> = o.walk("./").flatten().collect();
+    /// let paths: Vec<PathBuf> = wk.flatten().collect();
     ///
     /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("o"))));
     /// assert!(paths.iter().any(|p| p.extension() == Some(OsStr::new("rs"))));
@@ -212,7 +208,7 @@ impl WalkOptions {
     /// assert!(!paths.iter().any(|p| p.extension() == Some(OsStr::new("lock"))));
     /// ```
     #[inline(always)]
-    pub fn ends_with<S: AsRef<str>>(mut self, pat: S) -> Self {
+    pub fn ends_with<S: AsRef<str>>(&mut self, pat: S) -> &mut Self {
         self.ends_with.push(pat.as_ref().to_string());
         self
     }
@@ -226,16 +222,17 @@ impl WalkOptions {
     /// use std::path::PathBuf;
     /// use std::ffi::OsStr;
     ///
-    /// let o = fs_walk::WalkOptions::new()
-    ///     .name("lib.rs");
+    /// let wk = fs_walk::WalkOptions::new()
+    ///     .name("lib.rs")
+    ///     .walk("./");
     ///
-    /// let paths: Vec<PathBuf> = o.walk("./").flatten().collect();
+    /// let paths: Vec<PathBuf> = wk.flatten().collect();
     ///
     /// assert!(paths.iter().all(|p| p.file_name() == Some(OsStr::new("lib.rs"))));
     /// assert!(paths.iter().all(|p| p.is_file()));
     /// ```
     #[inline(always)]
-    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
+    pub fn name<S: AsRef<str>>(&mut self, name: S) -> &mut Self {
         self.names.insert(name.as_ref().to_string());
         self
     }
@@ -249,13 +246,17 @@ impl WalkOptions {
     /// use std::path::PathBuf;
     /// use std::ffi::OsStr;
     ///
-    /// let w = fs_walk::WalkOptions::new().name_regex(r#"^(.*\.rs|src|target)$"#).unwrap();
-    /// assert!(w.clone().dirs().walk("./").count() > 0);
-    /// assert!(w.files().walk("./").count() > 0);
+    /// let w = fs_walk::WalkOptions::new()
+    ///     .name_regex(r#"^(.*\.rs|src|target)$"#)
+    ///     .unwrap()
+    ///     .walk("./");
+    /// let paths: Vec<PathBuf> = w.flatten().collect();
+    /// assert!(paths.iter().any(|p| p.is_dir()));
+    /// assert!(paths.iter().any(|p| p.is_file()));
     /// ```
     #[inline(always)]
     #[cfg(feature = "regex")]
-    pub fn name_regex<S: AsRef<str>>(mut self, regex: S) -> Result<Self, regex::Error> {
+    pub fn name_regex<S: AsRef<str>>(&mut self, regex: S) -> Result<&mut Self, regex::Error> {
         self.regex.push(Regex::new(regex.as_ref())?);
         Ok(self)
     }
@@ -322,15 +323,15 @@ impl WalkOptions {
 
     /// Sorts entries at every directory listing
     #[inline(always)]
-    pub fn sort(mut self, value: bool) -> Self {
+    pub fn sort(&mut self, value: bool) -> &mut Self {
         self.sort = value;
         self
     }
 
     /// Turns [self] into a [Walker]
     #[inline(always)]
-    pub fn walk<P: AsRef<Path>>(self, p: P) -> Walker {
-        Walker::from_path(p).with_options(self)
+    pub fn walk<P: AsRef<Path>>(&self, p: P) -> Walker {
+        Walker::from_path(p).with_options(self.clone())
     }
 }
 
@@ -548,7 +549,8 @@ mod tests {
 
     #[test]
     fn test_walker_only_files() {
-        let o = WalkOptions::new().files();
+        let mut o = WalkOptions::new();
+        o.files();
         let w = o.walk("./");
 
         for p in w.flatten() {
@@ -558,7 +560,9 @@ mod tests {
 
     #[test]
     fn test_files_by_extension() {
-        let o = WalkOptions::new().files().extension("o");
+        let mut o = WalkOptions::new();
+        o.files().extension("o");
+
         let w = o.walk("./");
 
         let mut c = 0;
@@ -571,7 +575,8 @@ mod tests {
 
     #[test]
     fn test_files_ends_with() {
-        let o = WalkOptions::new().ends_with(".o");
+        let mut o = WalkOptions::new();
+        o.ends_with(".o");
         let w = o.walk("./");
 
         let mut c = 0;
@@ -584,7 +589,8 @@ mod tests {
 
     #[test]
     fn test_dirs_ends_with() {
-        let o = WalkOptions::new().ends_with("src").ends_with(".git");
+        let mut o = WalkOptions::new();
+        o.ends_with("src").ends_with(".git");
         let v = o.walk("./").flatten().collect::<Vec<PathBuf>>();
 
         assert!(v.len() >= 2);
@@ -595,7 +601,8 @@ mod tests {
 
     #[test]
     fn test_files_by_chunks_and_extension() {
-        let o = WalkOptions::new().files().extension("o");
+        let mut o = WalkOptions::new();
+        o.files().extension("o");
         let w = o.walk("./");
 
         let mut c = 0;
@@ -611,7 +618,9 @@ mod tests {
 
     #[test]
     fn test_walker_only_dirs() {
-        let o = WalkOptions::new().dirs();
+        let mut o = WalkOptions::new();
+        o.dirs();
+
         let w = o.walk("./");
 
         for p in w.flatten() {
@@ -621,7 +630,8 @@ mod tests {
 
     #[test]
     fn test_walker_dirs_and_files() {
-        let o = WalkOptions::new().dirs().files();
+        let mut o = WalkOptions::new();
+        o.dirs().files();
         let w = o.walk("./");
 
         for p in w.flatten() {
@@ -672,8 +682,9 @@ mod tests {
     #[test]
     #[cfg(feature = "regex")]
     fn test_name_regex() {
-        let w = WalkOptions::new()
-            .name_regex(r#"^(.*\.rs|src|target)$"#)
+        let mut w = WalkOptions::new();
+
+        w.name_regex(r#"^(.*\.rs|src|target)$"#)
             .unwrap()
             .name_regex(r#".*\.md"#)
             .unwrap();
