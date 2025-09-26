@@ -497,7 +497,7 @@ impl Walker {
     #[inline(always)]
     fn queue<P: AsRef<Path>>(&mut self, p: P, depth: u64) {
         if let Ok(can) = p.as_ref().canonicalize() {
-            let h = blake3::hash(can.as_os_str().as_bytes());
+            let h = blake3::hash(can.to_string_lossy().as_bytes());
 
             if !self.marked.contains(h.as_bytes()) {
                 self.queue
@@ -534,7 +534,7 @@ impl Walker {
                                 let mut must_walk = false;
 
                                 if p.is_symlink() && self.options.follow_symlink {
-                                    let h = blake3::hash(can.as_os_str().as_bytes());
+                                    let h = blake3::hash(can.to_string_lossy().as_bytes());
 
                                     if !self.marked.contains(h.as_bytes()) {
                                         must_walk |= true;
