@@ -124,6 +124,40 @@ impl WalkOptions {
         self
     }
 
+    /// Configures the walker to follow symbolic links during traversal.
+    ///
+    /// By default, the walker does **not** follow symbolic links.
+    /// When this option is enabled, the walker will recursively traverse
+    /// into directories pointed to by symbolic links, as if they were real directories.
+    ///
+    /// # Symlink Loop Protection
+    /// The walker is protected against infinite loops caused by cyclic symlinks.
+    /// It uses the canonical path and a hash set of visited directories (via BLAKE3 hashing)
+    /// to ensure each directory is only visited once, even if it is linked multiple times.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use fs_walk::WalkOptions;
+    ///
+    /// // Create a walker that follows symlinks
+    /// let mut options = WalkOptions::new();
+    /// options.follow_symlink();
+    ///
+    /// // Now symlinks to directories will be traversed
+    /// for entry in options.walk("./").flatten() {
+    ///     println!("{:?}", entry);
+    /// }
+    /// ```
+    ///
+    /// # Safety
+    /// While the walker is protected against symlink loops, be cautious when enabling this option
+    /// in untrusted directories, as it may still expose your program to other symlink-based attacks.
+    pub fn follow_symlink(&mut self) -> &mut Self {
+        self.follow_symlink = true;
+        self
+    }
+
     /// Configure a maximum depth for the walker. If no depth
     /// is specified the walker will walk through all directories
     /// in a BFS way.
@@ -771,5 +805,64 @@ mod tests {
 
         assert!(w.clone().dirs().walk("./").count() > 0);
         assert!(w.clone().files().walk("./").count() > 0);
+    }
+
+    #[test]
+    fn test_walker_follow_symlink() {
+        use std::os::unix::fs::symlink;
+        use tempfile::{tempdir, Builder};
+
+        // Create a temporary directory and a file inside it
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_file.txt");
+        fs::File::create(&file_path).unwrap();
+        let test_dir_path = dir.path().join("test_dir");
+        fs::create_dir(&test_dir_path).unwrap();
+
+        // Create a symlink to the temp directory
+        let symlink_path = Builder::new().prefix("symlink_test").tempdir().unwrap();
+        symlink(&dir, symlink_path.path().join("symlink")).unwrap();
+        symlink(&symlink_path, symlink_path.path().join("loop")).unwrap();
+
+        // Test with follow_symlink=true
+        let paths = WalkOptions::new()
+            .follow_symlink()
+            .files()
+            .walk(&symlink_path)
+            .flatten()
+            .collect::<Vec<PathBuf>>();
+        // Should find the file inside the symlink's target
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].ends_with("test_file.txt"));
+
+        // Test with follow_symlink=false (default)
+        let paths = WalkOptions::new()
+            .files()
+            .walk(&symlink_path)
+            .flatten()
+            .collect::<Vec<PathBuf>>();
+        // Should NOT find the file inside the symlink's target
+        assert!(paths.is_empty());
+
+        // Test dir with follow_symlink=false (default)
+        let paths = WalkOptions::new()
+            .dirs()
+            .walk(&symlink_path)
+            .flatten()
+            .collect::<Vec<PathBuf>>();
+        assert!(paths.iter().any(|p| p.ends_with("loop")));
+        assert!(paths.iter().any(|p| p.ends_with("symlink")));
+        assert!(!paths.iter().any(|p| p == &test_dir_path));
+
+        // Test dirs with follow_symlink=true
+        let paths = WalkOptions::new()
+            .dirs()
+            .follow_symlink()
+            .walk(&symlink_path)
+            .flatten()
+            .collect::<Vec<PathBuf>>();
+        assert!(paths.iter().any(|p| p.ends_with("loop")));
+        assert!(paths.iter().any(|p| p.ends_with("symlink")));
+        assert!(paths.iter().any(|p| p == &test_dir_path));
     }
 }
