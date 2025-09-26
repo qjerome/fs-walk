@@ -529,77 +529,76 @@ impl Walker {
     }
 
     #[inline(always)]
-    fn queue<P: AsRef<Path>>(&mut self, p: P, depth: u64) {
-        if let Ok(can) = p.as_ref().canonicalize() {
+    fn initialize(&mut self) {
+        if let Ok(can) = self.root.canonicalize() {
             let h = blake3::hash(can.to_string_lossy().as_bytes());
-
-            if !self.marked.contains(h.as_bytes()) {
-                self.queue
-                    .push_front(PathIterator::new(depth, p, self.options.sort));
-
-                self.marked.insert(h.into());
-            }
+            self.current = Some(PathIterator::new(0, &self.root, self.options.sort));
+            self.marked.insert(h.into());
         }
+        self.init = true
     }
 
     #[inline(always)]
     fn _next(&mut self) -> Option<Result<PathBuf, io::Error>> {
         if !self.init {
-            self.queue(self.root.clone(), 0);
-            self.init = true;
+            self.initialize();
         }
 
-        if let Some(pi) = self.current.as_mut() {
-            if let Some(ni) = pi.next() {
-                match ni {
-                    Ok(p) => {
-                        if p.is_file() {
-                            Some(Ok(p))
-                        } else {
-                            let next_depth = pi.depth + 1;
-                            if let Some(max_depth) = self.options.max_depth {
-                                if next_depth > max_depth {
-                                    return Some(Ok(p));
-                                }
-                            }
-
-                            // we use canonical path for marking directories
-                            if let Ok(can) = p.canonicalize() {
-                                let mut must_walk = false;
-
-                                if p.is_symlink() && self.options.follow_symlink {
-                                    let h = blake3::hash(can.to_string_lossy().as_bytes());
-
-                                    if !self.marked.contains(h.as_bytes()) {
-                                        must_walk |= true;
-                                        self.marked.insert(h.into());
-                                    }
-                                }
-
-                                if must_walk || !p.is_symlink() {
-                                    self.queue.push_back(PathIterator::new(
-                                        pi.depth + 1,
-                                        &can,
-                                        self.options.sort,
-                                    ));
-                                }
-                            }
-
-                            Some(Ok(p))
-                        }
-                    }
-                    Err(e) => Some(Err(e)),
-                }
-            } else {
-                self.current = self.queue.pop_front();
-                self._next()
-            }
-        } else {
+        let Some(pi) = self.current.as_mut() else {
             if self.queue.is_empty() {
                 return None;
+            } else {
+                self.current = self.queue.pop_back();
+                return self._next();
             }
-            self.current = self.queue.pop_front();
-            self._next()
+        };
+
+        let depth = pi.depth;
+        let ni = pi.next();
+
+        match ni {
+            Some(Ok(p)) => {
+                if p.is_file() {
+                    Some(Ok(p))
+                } else {
+                    let next_depth = pi.depth + 1;
+                    if let Some(max_depth) = self.options.max_depth {
+                        if next_depth > max_depth {
+                            return Some(Ok(p));
+                        }
+                    }
+
+                    // we use canonical path for marking directories
+                    if let Ok(can) = p.canonicalize() {
+                        let mut must_walk = false;
+
+                        if p.is_symlink() && self.options.follow_symlink {
+                            let h = blake3::hash(can.to_string_lossy().as_bytes());
+
+                            if !self.marked.contains(h.as_bytes()) {
+                                must_walk |= true;
+                                self.marked.insert(h.into());
+                            }
+                        }
+
+                        if must_walk || !p.is_symlink() {
+                            // current cannot be null here
+                            let pi = self.current.take().unwrap();
+                            // we push our ongoing iterator to the queue
+                            // to process dfs
+                            self.queue.push_back(pi);
+                            self.current = Some(PathIterator::new(depth + 1, &p, self.options.sort))
+                        }
+                    }
+
+                    Some(Ok(p))
+                }
+            }
+            Some(Err(e)) => Some(Err(e)),
+            None => {
+                self.current = self.queue.pop_back();
+                self._next()
+            }
         }
     }
 }
@@ -814,10 +813,10 @@ mod tests {
 
         // Create a temporary directory and a file inside it
         let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test_file.txt");
-        fs::File::create(&file_path).unwrap();
         let test_dir_path = dir.path().join("test_dir");
         fs::create_dir(&test_dir_path).unwrap();
+        let file_path = test_dir_path.join("test_file.txt");
+        fs::File::create(&file_path).unwrap();
 
         // Create a symlink to the temp directory
         let symlink_path = Builder::new().prefix("symlink_test").tempdir().unwrap();
@@ -861,8 +860,12 @@ mod tests {
             .walk(&symlink_path)
             .flatten()
             .collect::<Vec<PathBuf>>();
+        println!("{paths:#?}");
+        println!("{test_dir_path:?}");
         assert!(paths.iter().any(|p| p.ends_with("loop")));
         assert!(paths.iter().any(|p| p.ends_with("symlink")));
-        assert!(paths.iter().any(|p| p == &test_dir_path));
+        assert!(paths
+            .iter()
+            .any(|p| p.canonicalize().unwrap() == test_dir_path));
     }
 }
