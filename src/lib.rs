@@ -1,30 +1,99 @@
-#![deny(unused_imports)]
-//! `fs_walk` is a crate providing functionalities to walk a
-//! file-system recursively using `std` Rust APIs.
+//! `fs_walk` is a Rust crate for recursively walking the filesystem with flexible options.
 //!
-//! This crate currently supports:
-//!  - depth configuration
-//!  - results chunking to feed any batch processing routine
-//!  - result selection (only files, only dirs, by extension)
-//!  - regex matching
+//! ## Features
+//! - Depth configuration
+//! - Result chunking for batch processing
+//! - Filtering by extension, name, or regex
+//! - Optional symlink following with loop protection
+//! - Sorting of directory entries
 //!
-//! # Features
-//!  - `regex`: enable regex matching
-//!
-//! # Example
-//!
+//! ## Installation
+//! Add to your `Cargo.toml`:
+//! ```toml
+//! [dependencies]
+//! fs_walk = "0.1"
 //! ```
+//!
+//! ### Cargo Features
+//! - **`regex`**: Enables regex matching for file and directory names.
+//!   Requires the `regex` crate.
+//!   Enable with:
+//!  
+//!  ```toml
+//!   [dependencies]
+//!   fs_walk = { version = "0.1", features = ["regex"] }
+//!  ```
+//!
+//! ## Usage
+//! ```rust
 //! use fs_walk;
 //!
-//! let w = fs_walk::WalkOptions::new()
-//!     // we want to walk only files
-//!     .files()
-//!     // we want files with .o extension
-//!     .extension("o")
-//!     .walk("./");
-//!
-//! assert!(w.count() > 0);
+//! // Walk all files and directories
+//! let walker = fs_walk::WalkOptions::new().walk(".");
+//! for p in walker.flatten() {
+//!     println!("{p:?}");
+//! }
 //! ```
+//!
+//! ### Filtering
+//! ```rust
+//! use fs_walk;
+//!
+//! // Walk only Rust files
+//! let walker = fs_walk::WalkOptions::new()
+//!     .files()
+//!     .extension("rs")
+//!     .walk(".");
+//! for p in walker.flatten() {
+//!     println!("Found Rust file: {p:?}");
+//! }
+//! ```
+//!
+//! ### Chunking
+//! ```rust
+//! use fs_walk;
+//!
+//! // Process files in chunks of 10
+//! let walker = fs_walk::WalkOptions::new()
+//!     .files()
+//!     .extension("o")
+//!     .walk(".")
+//!     .chunks(10);
+//! for chunk in walker {
+//!     for p in chunk.iter().flatten() {
+//!         println!("{p:?}");
+//!     }
+//! }
+//! ```
+//!
+//! ### Regex Matching
+//! ```rust
+//! use fs_walk;
+//!
+//! // Walk files matching a regex pattern
+//! let walker = fs_walk::WalkOptions::new()
+//!     .name_regex(r#"^.*\.rs\$"#)
+//!     .unwrap()
+//!     .walk(".");
+//! for p in walker.flatten() {
+//!     println!("Found matching file: {p:?}");
+//! }
+//! ```
+//!
+//! ### Following Symlinks
+//! ```rust
+//! use fs_walk;
+//!
+//! // Walk directories, following symlinks
+//! let walker = fs_walk::WalkOptions::new()
+//!     .dirs()
+//!     .follow_symlink()
+//!     .walk(".");
+//! for p in walker.flatten() {
+//!     println!("{p:?}");
+//! }
+//! ```
+#![deny(unused_imports)]
 
 use std::{
     collections::{HashSet, VecDeque},
