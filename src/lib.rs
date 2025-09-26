@@ -11,7 +11,7 @@
 //! Add to your `Cargo.toml`:
 //! ```toml
 //! [dependencies]
-//! fs_walk = "0.1"
+//! fs_walk = "0.2"
 //! ```
 //!
 //! ### Cargo Features
@@ -21,7 +21,7 @@
 //!  
 //!  ```toml
 //!   [dependencies]
-//!   fs_walk = { version = "0.1", features = ["regex"] }
+//!   fs_walk = { version = "0.2", features = ["regex"] }
 //!  ```
 //!
 //! ## Usage
