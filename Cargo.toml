@@ -10,6 +10,9 @@ license = "GPL-3.0"
 documentation = "https://docs.rs/fs-walk"
 repository = "https://github.com/qjerome/fs-walk"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 regex = ["dep:regex"]
 

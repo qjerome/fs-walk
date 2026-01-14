@@ -1,98 +1,115 @@
-//! `fs_walk` is a Rust crate for recursively walking the filesystem with flexible options.
+#![cfg_attr(docsrs, feature(doc_cfg))]
+//! `fs_walk` is a Rust crate for efficiently and flexibly walking the filesystem.
+//! It provides a simple, ergonomic API for recursively traversing directories with fine-grained control over filtering, sorting, and symlink handling.
+//!
+//! ## Why Use `fs_walk`?
+//! - **Flexible filtering**: Filter by file extension, name, regex, or custom predicates.
+//! - **Batch processing**: Process files in chunks for memory efficiency.
+//! - **Symlink handling**: Safely follow symlinks with loop protection.
+//! - **Ergonomic API**: Chainable methods for intuitive configuration.
 //!
 //! ## Features
-//! - Depth configuration
-//! - Result chunking for batch processing
-//! - Filtering by extension, name, or regex
-//! - Optional symlink following with loop protection
-//! - Sorting of directory entries
+//! | Feature               | Description                                                                                     |
+//! |-----------------------|-------------------------------------------------------------------------------------------------|
+//! | **Depth control**     | Limit traversal depth to avoid unnecessary work.                                               |
+//! | **Result chunking**   | Process results in batches for memory efficiency.                                              |
+//! | **Filtering**         | Filter by extension, name, regex, or custom predicates.                                        |
+//! | **Symlink support**   | Optionally follow symlinks with loop protection.                                               |
+//! | **Sorting**           | Sort directory entries for consistent results.                                                 |
+//! | **Regex matching**    | Enable regex-based filtering (requires the `regex` feature).                                   |
 //!
 //! ## Installation
-//! Add to your `Cargo.toml`:
+//! Add `fs_walk` to your `Cargo.toml`:
 //! ```toml
 //! [dependencies]
 //! fs_walk = "0.2"
 //! ```
 //!
 //! ### Cargo Features
-//! - **`regex`**: Enables regex matching for file and directory names.
-//!   Requires the `regex` crate.
+//! - **`regex`**: Enables regex matching for file and directory names, using the `regex` crate
 //!   Enable with:
-//!  
-//!  ```toml
+//!   ```toml
 //!   [dependencies]
 //!   fs_walk = { version = "0.2", features = ["regex"] }
-//!  ```
+//!   ```
 //!
 //! ## Usage
-//! ```rust
-//! use fs_walk;
 //!
-//! // Walk all files and directories
-//! let walker = fs_walk::WalkOptions::new().walk(".");
-//! for p in walker.flatten() {
-//!     println!("{p:?}");
+//! ### Basic Usage
+//! Walk all files and directories in the current directory:
+//! ```rust
+//! use fs_walk::WalkOptions;
+//!
+//! let walker = WalkOptions::new().walk(".");
+//! for path in walker.flatten() {
+//!     println!("Found: {:?}", path);
 //! }
 //! ```
 //!
-//! ### Filtering
+//! ### Filtering Files
+//! Walk only Rust files (`.rs` extension):
 //! ```rust
-//! use fs_walk;
+//! use fs_walk::WalkOptions;
 //!
-//! // Walk only Rust files
-//! let walker = fs_walk::WalkOptions::new()
+//! let walker = WalkOptions::new()
 //!     .files()
 //!     .extension("rs")
 //!     .walk(".");
-//! for p in walker.flatten() {
-//!     println!("Found Rust file: {p:?}");
+//! for path in walker.flatten() {
+//!     println!("Found Rust file: {:?}", path);
 //! }
 //! ```
 //!
-//! ### Chunking
+//! ### Chunking Results
+//! Process files in chunks of 10 for batch operations:
 //! ```rust
-//! use fs_walk;
+//! use fs_walk::WalkOptions;
 //!
-//! // Process files in chunks of 10
-//! let walker = fs_walk::WalkOptions::new()
+//! let walker = WalkOptions::new()
 //!     .files()
 //!     .extension("o")
 //!     .walk(".")
 //!     .chunks(10);
 //! for chunk in walker {
-//!     for p in chunk.iter().flatten() {
-//!         println!("{p:?}");
+//!     for path in chunk.iter().flatten() {
+//!         println!("Processing: {:?}", path);
 //!     }
 //! }
 //! ```
 //!
 //! ### Regex Matching
+//! Walk files matching a regex pattern (requires the `regex` feature):
 //! ```rust
-//! use fs_walk;
+//! use fs_walk::WalkOptions;
 //!
-//! // Walk files matching a regex pattern
-//! let walker = fs_walk::WalkOptions::new()
-//!     .name_regex(r#"^.*\.rs\$"#)
+//! let walker = WalkOptions::new()
+//!     .name_regex(r#"^.*\.rs$"#)
 //!     .unwrap()
 //!     .walk(".");
-//! for p in walker.flatten() {
-//!     println!("Found matching file: {p:?}");
+//! for path in walker.flatten() {
+//!     println!("Found matching file: {:?}", path);
 //! }
 //! ```
 //!
 //! ### Following Symlinks
+//! Walk directories while following symlinks (with loop protection):
 //! ```rust
-//! use fs_walk;
+//! use fs_walk::WalkOptions;
 //!
-//! // Walk directories, following symlinks
-//! let walker = fs_walk::WalkOptions::new()
+//! let walker = WalkOptions::new()
 //!     .dirs()
 //!     .follow_symlink()
 //!     .walk(".");
-//! for p in walker.flatten() {
-//!     println!("{p:?}");
+//! for path in walker.flatten() {
+//!     println!("Found directory: {:?}", path);
 //! }
 //! ```
+//!
+//! ## Contributing
+//! Contributions are welcome! If you’d like to report a bug, suggest a feature, or submit a PR, check out the [GitHub repository](https://github.com/yourusername/fs-walk).
+//!
+//! ## License
+//! This project is licensed under the [GPL-3 License](./LICENSE).
 #![deny(unused_imports)]
 
 use std::{
@@ -359,6 +376,7 @@ impl WalkOptions {
     /// ```
     #[inline(always)]
     #[cfg(feature = "regex")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "regex")))]
     pub fn name_regex<S: AsRef<str>>(&mut self, regex: S) -> Result<&mut Self, regex::Error> {
         self.regex.push(Regex::new(regex.as_ref())?);
         Ok(self)
