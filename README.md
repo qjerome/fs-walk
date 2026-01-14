@@ -111,7 +111,7 @@ for path in walker.flatten() {
 ```
 
 ## Contributing
-Contributions are welcome! If you’d like to report a bug, suggest a feature, or submit a PR, check out the [GitHub repository](https://github.com/yourusername/fs-walk).
+Contributions are welcome! If you’d like to report a bug, suggest a feature, or submit a PR.
 
 ## License
 This project is licensed under the [GPL-3 License](./LICENSE).
