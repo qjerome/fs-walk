@@ -109,7 +109,8 @@
 //! Contributions are welcome! If you’d like to report a bug, suggest a feature, or submit a PR.
 //!
 //! ## License
-//! This project is licensed under the [GPL-3 License](./LICENSE).
+//! This project is dual-licensed under the [GPL-3 License](./LICENSE-GPL)
+//! or the [BSD 2-Clause License](./LICENSE-BSD), at your option.
 #![deny(unused_imports)]
 
 use std::{
