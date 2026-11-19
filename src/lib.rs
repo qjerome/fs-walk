@@ -504,10 +504,7 @@ impl Iterator for PathIterator {
             let path = self.path.as_ref().unwrap();
 
             if path.is_file() {
-                match self.path.take() {
-                    Some(p) => return Some(Ok(p)),
-                    None => return None,
-                }
+                return Some(Ok(self.path.take()?));
             } else {
                 match fs::read_dir(path) {
                     Ok(rd) => {
